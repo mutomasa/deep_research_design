@@ -1,4 +1,4 @@
-# Open Deep Research + ネットワーク分析・知識グラフ機能 実装設計書
+# Deep Research + ネットワーク分析・知識グラフ機能 実装設計書
 
 ## 概要
 
@@ -17,6 +17,186 @@ Researcher Subgraph: researcher → researcher_tools → researcher (ループ) 
                     ↓
 Network Analysis Subgraph: network_builder → market_analyzer → idea_explorer → knowledge_graph_builder
 ```
+### 全体フロー (Main Graph と各サブグラフ)
+```mermaid
+flowchart LR
+  START([START]) --> CWU[clarify_with_user]
+  CWU --> WRB[write_research_brief]
+  WRB --> RSV[research_supervisor]
+  RSV --> NA[network_analysis]
+  NA --> FRG[final_report_generation]
+  FRG --> END([END])
+
+  subgraph Supervisor_Subgraph
+    direction LR
+    SUP[supervisor] --> STOOLS[supervisor_tools]
+    STOOLS --> SUP
+  end
+
+  subgraph Researcher_Subgraph
+    direction LR
+    RES[researcher] --> RTOOLS[researcher_tools]
+    RTOOLS --> RES
+    RES --> COMP[compress_research]
+  end
+
+  subgraph Network_Analysis_Subgraph
+    direction LR
+    NB[network_builder] --> MA[market_analyzer]
+    MA --> IE[idea_explorer]
+    IE --> KGB[knowledge_graph_builder]
+  end
+
+  RSV -. hands-off .-> SUP
+  RSV -. task_dispatch .-> RES
+  NA -. invoke .-> NB
+  NA -. results .-> KGB
+
+```
+
+### エージェントのやり取り (シーケンス)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant Planner as Planner (Main)
+  participant Supervisor as Supervisor Agent
+  participant Researcher as Researcher Agent
+  participant Scorer as Evidence Scorer
+  participant Net as Network Analyzer
+  participant KG as Knowledge Graph Builder
+  participant Reporter as Reporter
+
+  User->>Planner: 調査ゴール/制約を入力
+  Planner->>Supervisor: ブリーフ作成/分解タスク
+  loop Plan-Refine
+    Supervisor->>Supervisor: supervisor_tools で方針整備
+  end
+  Planner->>Researcher: Web探索サブクエリ
+  loop Explore-Score
+    Researcher->>Researcher: researcher_tools（収集/抽出）
+    Researcher->>Scorer: 出典・鮮度・一貫性評価
+    Scorer-->>Researcher: フィードバック
+  end
+  Planner->>Net: ネットワーク解析要求
+  Net->>KG: エンティティ/関係を更新
+  KG-->>Planner: サブグラフ要約/根拠
+  Planner->>Reporter: 最終レポート生成
+  Reporter-->>User: 成果物
+
+
+```
+
+### データ & モデルフロー
+```mermaid
+flowchart TB
+  %% Ingestion
+  subgraph Ingestion
+    PLY[Playwright / HTTP] --> TRA[Trafilatura Parser]
+    TRA --> RAW[Raw Docs + Meta]
+  end
+
+  %% Processing
+  subgraph Processing
+    RAW --> CLN[Clean / Dedup / Normalize]
+    CLN --> EMB[Embeddings: bge-m3, MiniLM]
+    EMB --> SIM[Similarity Graph]
+    CLN --> NER[NER / RE Extractors]
+  end
+
+  %% Graph
+  subgraph Graph
+    SIM --> NX[networkx]
+    NER --> NX
+    NX --> MCOMM[Community Detection]
+    NX --> CENT[Centrality / PageRank]
+    NX --> LPR[Link Prediction]
+    NX --> NEO[(Neo4j)]
+  end
+
+  %% Analysis
+  subgraph Analysis
+    MCOMM --> MKT[Market Analyzer]
+    CENT --> IDEA[Idea Explorer]
+    LPR --> IDEA
+    NX --> KGB2[Knowledge Graph Builder]
+  end
+
+  %% Output
+  subgraph Output
+    MKT --> VIS[Visualization]
+    IDEA --> VIS
+    KGB2 --> VIS
+    VIS --> RPT[GraphRAG-style Report]
+  end
+
+
+```
+
+### LangGraph 状態管理
+```mermaid
+stateDiagram-v2
+  [*] --> Clarify
+  Clarify --> Brief
+  Brief --> Supervising
+  Supervising --> ResearchLoop
+  ResearchLoop --> ResearchLoop: Explore/Score/Compress
+  ResearchLoop --> NetAnalysis
+  NetAnalysis --> KGUpdate
+  KGUpdate --> Decide
+  Decide --> ResearchLoop: 追加証拠必要
+  Decide --> Report
+  Report --> [*]
+
+```
+
+### Network Analysis Subgraph 詳細
+``` mermaid
+flowchart LR
+  NB1[network_builder:init] --> NB2[build edges]
+  NB2 --> NB3[compute metrics]
+  NB3 --> MA1[market_analyzer]
+  MA1 --> IE1[idea_explorer]
+  IE1 --> KGB1[knowledge_graph_builder]
+  KGB1 --> OUT1{Artifacts}
+  OUT1 -->|graph.json| ART1[Graph Snapshot]
+  OUT1 -->|metrics.json| ART2[Metrics]
+  OUT1 -->|report.md| ART3[Insights Report]
+
+
+```
+
+### メモリ設計
+```mermaid
+flowchart TB
+  subgraph Episodic
+    LOG[Run Logs] --> RFX[Reflexion Notes]
+  end
+  subgraph Semantic
+    SUM[Summaries] --> VEC[Vector Store]
+  end
+  subgraph GraphMemory
+    KEY[Key Subgraphs] --> EVID[Evidence Links]
+  end
+  subgraph Pager
+    CTXQ[Context Router] --> PAGE[Paging Policy]
+  end
+
+  RFX --> Planner
+  VEC --> Planner
+  GraphMemory --> Planner
+  Pager --> Planner
+
+
+
+```
+
+
+
+
+
+
 
 ### 1.2 新しいコンポーネント
 
